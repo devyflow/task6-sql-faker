@@ -16,6 +16,7 @@ from psycopg_pool import ConnectionPool
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent
+SCHEMA_PATH = ROOT / "schema.sql"
 load_dotenv(ROOT / ".env.local")
 load_dotenv(ROOT / ".env")
 
@@ -36,6 +37,10 @@ class GenerateRequest(BaseModel):
 @app.on_event("startup")
 def startup() -> None:
     pool.open(wait=True)
+    # Keep managed deployments self-initializing. The schema is idempotent and
+    # is also mounted into the PostgreSQL container for local docker-compose.
+    with pool.connection() as connection:
+        connection.execute(SCHEMA_PATH.read_text(encoding="utf-8"), prepare=False)
 
 
 @app.on_event("shutdown")
