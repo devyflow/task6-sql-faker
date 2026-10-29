@@ -41,6 +41,9 @@ python benchmark.py
 
 `benchmark.py` measures median database-reported latency for 1k, 10k and 100k rows and creates two 1,000-row batches with the same seed. The bidirectional `EXCEPT` comparison must report `determinism_differences,0`.
 
+The committed implementation was also executed against PostgreSQL 17.11. See
+[`BENCHMARK.md`](BENCHMARK.md) for the measured timings and determinism result.
+
 ## Request flow
 
 ```text
