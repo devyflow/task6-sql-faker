@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SQL Faker Lab</title><link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header><div class="eyebrow">TASK 6 · POSTGRESQL STORED PROCEDURES</div><h1>SQL Faker Lab</h1><p>Deterministic, locale-aware synthetic people generated entirely inside PostgreSQL.</p></header>
+  <main>
+    <section class="panel generator">
+      <div><span class="section-no">01</span><h2>Configure a batch</h2></div>
+      <form id="generate-form">
+        <label>Locale<select id="locale" required></select></label>
+        <label>Seed<input id="seed" type="number" min="0" value="20261029" required></label>
+        <label>Rows<input id="rows" type="number" min="1" max="1000000" value="10000" required></label>
+        <button>Generate in SQL</button>
+      </form>
+      <p class="note">The browser sends only locale, seed and row count. Names, distributions, coordinates, contacts and timing are calculated by the database routine.</p>
+    </section>
+    <section class="summary-grid" id="summary-grid">
+      <article><span>Rows</span><strong id="metric-rows">—</strong></article>
+      <article><span>Elapsed</span><strong id="metric-ms">—</strong></article>
+      <article><span>Throughput</span><strong id="metric-rps">—</strong></article>
+      <article><span>Batch</span><strong id="metric-batch">—</strong></article>
+    </section>
+    <section class="panel results">
+      <div class="results-head"><div><span class="section-no">02</span><h2>Generated preview</h2></div><a id="download" class="download disabled">Export CSV</a></div>
+      <div id="status" class="status">Choose parameters and generate a batch.</div>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>Name</th><th>Age</th><th>Physical</th><th>Location</th><th>Coordinates</th><th>Contact</th></tr></thead><tbody id="rows-body"></tbody></table></div>
+    </section>
+    <section class="architecture">
+      <span>FastAPI validates inputs</span><b>→</b><span>CALL generate_people_batch</span><b>→</b><span>PostgreSQL generates every field</span><b>→</b><span>Bounded preview + streamed CSV</span>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body></html>
