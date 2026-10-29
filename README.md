@@ -2,16 +2,19 @@
 
 Locale-aware, deterministic synthetic-person generation in PostgreSQL. Python does not generate, randomize, format or enrich any person record; the web app validates three inputs and calls one stored procedure.
 
+Stored-procedure arguments and algorithms are documented in
+[`SQL_API.md`](SQL_API.md).
+
 ## Requirement coverage
 
-- `generate_people_batch(locale, seed, rows, batch_id)` is the only generation entry point.
+- `generate_people_batch(locale, seed, rows, batch_index, batch_id)` is the only generation entry point.
 - Deterministic `hash_uniform` and Box-Muller `hash_normal` functions derive independent values from `(seed, row_number, salt)`.
 - Locale lookup tables supply first names, last names, street names, cities, regions, postal prefixes, domains and phone prefixes.
-- Names, gender, discrete age, normally distributed/correlated height and weight, addresses, spherical coordinates, phones and collision-resistant e-mails are generated in SQL.
+- Names with title/middle-name variations, gender, eye color, discrete age, normally distributed/correlated height and weight, locale-formatted addresses, spherical coordinates, varied phones and collision-resistant e-mails are generated in SQL.
 - Latitude/longitude uses destination-point spherical geometry around each locale's center and radius—not a rectangular latitude/longitude box.
 - Batch timing and rows/second are recorded inside the same procedure.
 - Up to 1,000,000 rows per batch; the UI fetches a bounded preview and streams full CSV exports with a server-side cursor.
-- The same locale, seed and row number always produce the same record.
+- The same locale, seed, batch index and row number always produce the same record; omitting the batch index advances to the next batch.
 
 ## Run
 

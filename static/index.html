@@ -15,7 +15,7 @@
         <label>Rows<input id="rows" type="number" min="1" max="1000000" value="10000" required></label>
         <button>Generate in SQL</button>
       </form>
-      <p class="note">The browser sends only locale, seed and row count. Names, distributions, coordinates, contacts and timing are calculated by the database routine.</p>
+      <p class="note">The browser sends only locale, seed and row count. Each click advances the deterministic batch index; names, distributions, coordinates, contacts and timing are calculated by PostgreSQL.</p>
     </section>
     <section class="summary-grid" id="summary-grid">
       <article><span>Rows</span><strong id="metric-rows">—</strong></article>

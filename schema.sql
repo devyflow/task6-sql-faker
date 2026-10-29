@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS generation_batches (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   locale text NOT NULL REFERENCES locales(code),
   seed bigint NOT NULL,
+  batch_index integer NOT NULL DEFAULT 0 CHECK (batch_index >= 0),
   requested_rows integer NOT NULL CHECK (requested_rows BETWEEN 1 AND 1000000),
   created_at timestamptz NOT NULL DEFAULT now(),
   elapsed_ms numeric(14,3),
@@ -62,7 +63,10 @@ CREATE TABLE IF NOT EXISTS generated_people (
   batch_id uuid NOT NULL REFERENCES generation_batches(id) ON DELETE CASCADE,
   row_number integer NOT NULL,
   full_name text NOT NULL,
+  title text,
+  middle_name text,
   gender char(1) NOT NULL,
+  eye_color text NOT NULL,
   age smallint NOT NULL,
   height_cm numeric(6,2) NOT NULL,
   weight_kg numeric(6,2) NOT NULL,
@@ -76,6 +80,10 @@ CREATE TABLE IF NOT EXISTS generated_people (
   email text NOT NULL,
   PRIMARY KEY(batch_id, row_number)
 );
+ALTER TABLE generation_batches ADD COLUMN IF NOT EXISTS batch_index integer NOT NULL DEFAULT 0;
+ALTER TABLE generated_people ADD COLUMN IF NOT EXISTS title text;
+ALTER TABLE generated_people ADD COLUMN IF NOT EXISTS middle_name text;
+ALTER TABLE generated_people ADD COLUMN IF NOT EXISTS eye_color text NOT NULL DEFAULT 'brown';
 CREATE INDEX IF NOT EXISTS generated_people_email_idx ON generated_people(email);
 CREATE INDEX IF NOT EXISTS generated_people_batch_city_idx ON generated_people(batch_id, city);
 
@@ -147,50 +155,60 @@ RETURNS text LANGUAGE sql IMMUTABLE STRICT AS $$
     'aaaaaaceeeeiiiinooooouuuuyyzss') AS unaccent_safe) s;
 $$;
 
+DROP PROCEDURE IF EXISTS generate_people_batch(text,bigint,integer,uuid);
 CREATE OR REPLACE PROCEDURE generate_people_batch(
   IN p_locale text,
   IN p_seed bigint,
   IN p_rows integer,
+  IN p_batch_index integer DEFAULT NULL,
   INOUT p_batch_id uuid DEFAULT NULL
 )
 LANGUAGE plpgsql AS $$
 DECLARE
   v_started timestamptz := clock_timestamp();
   v_locale locales%ROWTYPE;
+  v_batch_index integer;
 BEGIN
   IF p_rows < 1 OR p_rows > 1000000 THEN
     RAISE EXCEPTION 'rows must be between 1 and 1000000';
   END IF;
   SELECT * INTO STRICT v_locale FROM locales WHERE code = p_locale;
+  v_batch_index := COALESCE(
+    p_batch_index,
+    (SELECT COALESCE(max(batch_index),-1)+1 FROM generation_batches WHERE locale=p_locale AND seed=p_seed)
+  );
+  IF v_batch_index < 0 THEN RAISE EXCEPTION 'batch_index must be non-negative'; END IF;
   p_batch_id := COALESCE(p_batch_id, gen_random_uuid());
-  INSERT INTO generation_batches(id,locale,seed,requested_rows) VALUES(p_batch_id,p_locale,p_seed,p_rows);
+  INSERT INTO generation_batches(id,locale,seed,batch_index,requested_rows)
+  VALUES(p_batch_id,p_locale,p_seed,v_batch_index,p_rows);
 
   INSERT INTO generated_people(
-    batch_id,row_number,full_name,gender,age,height_cm,weight_kg,address,city,region,
+    batch_id,row_number,full_name,title,middle_name,gender,eye_color,age,height_cm,weight_kg,address,city,region,
     postal_code,latitude,longitude,phone,email
   )
   WITH rows AS (
-    SELECT g AS n,
-      CASE WHEN hash_uniform(p_seed,g,'gender') < .48 THEN 'F' WHEN hash_uniform(p_seed,g,'gender') < .96 THEN 'M' ELSE 'X' END::char(1) AS gender,
-      hash_uniform(p_seed,g,'city') AS city_u
+    SELECT g AS n, v_batch_index::bigint*1000000 + g AS k,
+      CASE WHEN hash_uniform(p_seed,v_batch_index::bigint*1000000+g,'gender') < .48 THEN 'F' WHEN hash_uniform(p_seed,v_batch_index::bigint*1000000+g,'gender') < .96 THEN 'M' ELSE 'X' END::char(1) AS gender,
+      hash_uniform(p_seed,v_batch_index::bigint*1000000+g,'city') AS city_u
     FROM generate_series(1,p_rows) g
   ), picked AS (
     SELECT r.*,
-      (SELECT value FROM first_names f WHERE f.locale=p_locale AND (f.gender=r.gender OR f.gender='X') ORDER BY value OFFSET floor(hash_uniform(p_seed,r.n,'first') * (SELECT count(*) FROM first_names x WHERE x.locale=p_locale AND (x.gender=r.gender OR x.gender='X'))) LIMIT 1) AS first_name,
-      (SELECT value FROM last_names f WHERE f.locale=p_locale ORDER BY value OFFSET floor(hash_uniform(p_seed,r.n,'last') * (SELECT count(*) FROM last_names x WHERE x.locale=p_locale)) LIMIT 1) AS last_name,
-      (SELECT value FROM street_names f WHERE f.locale=p_locale ORDER BY value OFFSET floor(hash_uniform(p_seed,r.n,'street') * (SELECT count(*) FROM street_names x WHERE x.locale=p_locale)) LIMIT 1) AS street,
+      (SELECT value FROM first_names f WHERE f.locale=p_locale AND (f.gender=r.gender OR f.gender='X') ORDER BY value OFFSET floor(hash_uniform(p_seed,r.k,'first') * (SELECT count(*) FROM first_names x WHERE x.locale=p_locale AND (x.gender=r.gender OR x.gender='X'))) LIMIT 1) AS first_name,
+      CASE WHEN hash_uniform(p_seed,r.k,'middle_use') < .45 THEN (SELECT value FROM first_names f WHERE f.locale=p_locale ORDER BY value OFFSET floor(hash_uniform(p_seed,r.k,'middle') * (SELECT count(*) FROM first_names x WHERE x.locale=p_locale)) LIMIT 1) END AS middle_name,
+      (SELECT value FROM last_names f WHERE f.locale=p_locale ORDER BY value OFFSET floor(hash_uniform(p_seed,r.k,'last') * (SELECT count(*) FROM last_names x WHERE x.locale=p_locale)) LIMIT 1) AS last_name,
+      (SELECT value FROM street_names f WHERE f.locale=p_locale ORDER BY value OFFSET floor(hash_uniform(p_seed,r.k,'street') * (SELECT count(*) FROM street_names x WHERE x.locale=p_locale)) LIMIT 1) AS street,
       (SELECT value FROM cities f WHERE f.locale=p_locale ORDER BY value OFFSET floor(r.city_u * (SELECT count(*) FROM cities x WHERE x.locale=p_locale)) LIMIT 1) AS city_name,
       (SELECT region FROM cities f WHERE f.locale=p_locale ORDER BY value OFFSET floor(r.city_u * (SELECT count(*) FROM cities x WHERE x.locale=p_locale)) LIMIT 1) AS region_name,
       (SELECT postal_prefix FROM cities f WHERE f.locale=p_locale ORDER BY value OFFSET floor(r.city_u * (SELECT count(*) FROM cities x WHERE x.locale=p_locale)) LIMIT 1) AS postal_prefix,
-      hash_normal(p_seed,r.n,'height') AS z_height,
-      hash_normal(p_seed,r.n,'weight') AS z_weight
+      hash_normal(p_seed,r.k,'height') AS z_height,
+      hash_normal(p_seed,r.k,'weight') AS z_weight
     FROM rows r
   ), shaped AS (
     SELECT p.*,
       round((v_locale.height_mean + v_locale.height_sd * p.z_height)::numeric,2) AS height_value,
-      18 + floor(power(hash_uniform(p_seed,p.n,'age'),0.68)*65)::integer AS age_value,
-      (hash_uniform(p_seed,p.n,'geo_distance') * v_locale.radius_km / 6371.0088) AS angular_distance,
-      (2*pi()*hash_uniform(p_seed,p.n,'geo_bearing')) AS bearing
+      18 + floor(power(hash_uniform(p_seed,p.k,'age'),0.68)*65)::integer AS age_value,
+      (hash_uniform(p_seed,p.k,'geo_distance') * v_locale.radius_km / 6371.0088) AS angular_distance,
+      (2*pi()*hash_uniform(p_seed,p.k,'geo_bearing')) AS bearing
     FROM picked p
   ), final AS (
     SELECT s.*,
@@ -199,12 +217,19 @@ BEGIN
       radians(v_locale.center_lon) + atan2(sin(s.bearing)*sin(s.angular_distance)*cos(radians(v_locale.center_lat)), cos(s.angular_distance)-sin(radians(v_locale.center_lat))*sin(asin(sin(radians(v_locale.center_lat))*cos(s.angular_distance) + cos(radians(v_locale.center_lat))*sin(s.angular_distance)*cos(s.bearing)))) AS lon_rad
     FROM shaped s
   )
-  SELECT p_batch_id,n,first_name || ' ' || last_name,gender,age_value,height_value,weight_value,
-    (1+floor(hash_uniform(p_seed,n,'house')*9999))::int || ' ' || street,
-    city_name,region_name,postal_prefix || lpad(floor(hash_uniform(p_seed,n,'postal')*1000)::int::text,3,'0'),
+  SELECT p_batch_id,n,
+    concat_ws(' ', CASE WHEN hash_uniform(p_seed,k,'title_use') < .35 THEN CASE gender WHEN 'F' THEN 'Ms.' WHEN 'M' THEN 'Mr.' ELSE 'Mx.' END END, first_name, middle_name, last_name),
+    CASE WHEN hash_uniform(p_seed,k,'title_use') < .35 THEN CASE gender WHEN 'F' THEN 'Ms.' WHEN 'M' THEN 'Mr.' ELSE 'Mx.' END END,
+    middle_name,gender,
+    (ARRAY['brown','blue','green','hazel','gray'])[1+floor(hash_uniform(p_seed,k,'eye')*5)::int],
+    age_value,height_value,weight_value,
+    CASE WHEN p_locale IN ('de_DE','fr_FR','es_ES') THEN street || ' ' || (1+floor(hash_uniform(p_seed,k,'house')*9999))::int ELSE (1+floor(hash_uniform(p_seed,k,'house')*9999))::int || ' ' || street END,
+    city_name,region_name,postal_prefix || lpad(floor(hash_uniform(p_seed,k,'postal')*1000)::int::text,3,'0'),
     round(degrees(lat_rad)::numeric,7),round((((degrees(lon_rad)+540)::numeric % 360)-180),7),
-    v_locale.phone_prefix || ' ' || lpad(floor(hash_uniform(p_seed,n,'phone_a')*1000)::int::text,3,'0') || ' ' || lpad(floor(hash_uniform(p_seed,n,'phone_b')*10000000)::int::text,7,'0'),
-    slug_email(first_name || '.' || last_name) || '.' || n || '@' || (SELECT value FROM email_domains d WHERE d.locale=p_locale ORDER BY value OFFSET floor(hash_uniform(p_seed,n,'domain')*(SELECT count(*) FROM email_domains x WHERE x.locale=p_locale)) LIMIT 1)
+    CASE WHEN hash_uniform(p_seed,k,'phone_format') < .5
+      THEN v_locale.phone_prefix || ' ' || lpad(floor(hash_uniform(p_seed,k,'phone_a')*1000)::int::text,3,'0') || ' ' || lpad(floor(hash_uniform(p_seed,k,'phone_b')*10000000)::int::text,7,'0')
+      ELSE v_locale.phone_prefix || ' (' || lpad(floor(hash_uniform(p_seed,k,'phone_a')*1000)::int::text,3,'0') || ') ' || lpad(floor(hash_uniform(p_seed,k,'phone_b')*10000000)::int::text,7,'0') END,
+    slug_email(first_name || '.' || last_name) || '.' || v_batch_index || '.' || n || '@' || (SELECT value FROM email_domains d WHERE d.locale=p_locale ORDER BY value OFFSET floor(hash_uniform(p_seed,k,'domain')*(SELECT count(*) FROM email_domains x WHERE x.locale=p_locale)) LIMIT 1)
   FROM final;
 
   UPDATE generation_batches
@@ -215,7 +240,7 @@ END;
 $$;
 
 CREATE OR REPLACE VIEW batch_summary AS
-SELECT b.id,b.locale,b.seed,b.requested_rows,b.created_at,b.elapsed_ms,b.rows_per_second,
+SELECT b.id,b.locale,b.seed,b.batch_index,b.requested_rows,b.created_at,b.elapsed_ms,b.rows_per_second,
        count(p.*) AS stored_rows,round(avg(p.height_cm),2) AS avg_height_cm,round(avg(p.weight_kg),2) AS avg_weight_kg
 FROM generation_batches b LEFT JOIN generated_people p ON p.batch_id=b.id
 GROUP BY b.id;

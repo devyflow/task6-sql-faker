@@ -4,6 +4,7 @@ import csv
 import io
 import os
 from pathlib import Path
+from typing import Optional
 from uuid import UUID
 
 from dotenv import load_dotenv
@@ -29,6 +30,7 @@ class GenerateRequest(BaseModel):
     locale: str = Field(pattern=r"^[a-z]{2}_[A-Z]{2}$")
     seed: int = Field(ge=0, le=9_223_372_036_854_775_807)
     rows: int = Field(ge=1, le=1_000_000)
+    batch_index: Optional[int] = Field(default=None, ge=0)
 
 
 @app.on_event("startup")
@@ -69,8 +71,8 @@ def generate(request: GenerateRequest):
     try:
         with pool.connection() as connection:
             row = connection.execute(
-                "CALL generate_people_batch(%s,%s,%s,NULL)",
-                (request.locale, request.seed, request.rows),
+                "CALL generate_people_batch(%s,%s,%s,%s,NULL)",
+                (request.locale, request.seed, request.rows, request.batch_index),
             ).fetchone()
             batch_id = row["p_batch_id"]
             summary = connection.execute(
@@ -114,7 +116,7 @@ def export_csv(batch_id: UUID):
         buffer = io.StringIO()
         writer = csv.writer(buffer)
         columns = [
-            "row_number", "full_name", "gender", "age", "height_cm", "weight_kg",
+            "row_number", "full_name", "title", "middle_name", "gender", "eye_color", "age", "height_cm", "weight_kg",
             "address", "city", "region", "postal_code", "latitude", "longitude", "phone", "email",
         ]
         writer.writerow(columns)

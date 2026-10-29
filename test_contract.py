@@ -20,8 +20,12 @@ class ContractTests(unittest.TestCase):
         self.assertIn("md5(p_seed::text", self.sql)
 
     def test_required_generated_fields_exist(self):
-        for field in ("full_name", "height_cm", "weight_kg", "latitude", "longitude", "phone", "email"):
+        for field in ("full_name", "middle_name", "eye_color", "height_cm", "weight_kg", "latitude", "longitude", "phone", "email"):
             self.assertIn(field, self.sql)
+
+    def test_next_batch_is_part_of_deterministic_key(self):
+        self.assertIn("batch_index", self.sql)
+        self.assertIn("v_batch_index::bigint*1000000", self.sql)
 
     def test_web_layer_does_not_generate_fake_values(self):
         for forbidden in ("random.", "from faker", "import faker", "numpy", "uuid4("):

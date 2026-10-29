@@ -17,8 +17,8 @@ with psycopg.connect(dsn, row_factory=dict_row) as connection:
         samples = []
         for run in range(3):
             batch = connection.execute(
-                "CALL generate_people_batch(%s,%s,%s,NULL)",
-                ("en_US", 20261029 + run, size),
+                "CALL generate_people_batch(%s,%s,%s,%s,NULL)",
+                ("en_US", 20261029 + run, size, 0),
             ).fetchone()["p_batch_id"]
             result = connection.execute(
                 "SELECT elapsed_ms,rows_per_second FROM generation_batches WHERE id=%s", (batch,)
@@ -27,24 +27,24 @@ with psycopg.connect(dsn, row_factory=dict_row) as connection:
         print(f"{size},{median(float(x['elapsed_ms']) for x in samples):.3f},{median(float(x['rows_per_second']) for x in samples):.2f}")
 
     first = connection.execute(
-        "CALL generate_people_batch(%s,%s,%s,NULL)", ("en_US", 424242, 1000)
+        "CALL generate_people_batch(%s,%s,%s,%s,NULL)", ("en_US", 424242, 1000, 7)
     ).fetchone()["p_batch_id"]
     second = connection.execute(
-        "CALL generate_people_batch(%s,%s,%s,NULL)", ("en_US", 424242, 1000)
+        "CALL generate_people_batch(%s,%s,%s,%s,NULL)", ("en_US", 424242, 1000, 7)
     ).fetchone()["p_batch_id"]
     difference = connection.execute(
         """
         SELECT count(*) AS differences FROM (
-          (SELECT row_number,full_name,gender,age,height_cm,weight_kg,address,city,region,postal_code,latitude,longitude,phone,email
+          (SELECT row_number,full_name,title,middle_name,gender,eye_color,age,height_cm,weight_kg,address,city,region,postal_code,latitude,longitude,phone,email
            FROM generated_people WHERE batch_id=%s
            EXCEPT
-           SELECT row_number,full_name,gender,age,height_cm,weight_kg,address,city,region,postal_code,latitude,longitude,phone,email
+           SELECT row_number,full_name,title,middle_name,gender,eye_color,age,height_cm,weight_kg,address,city,region,postal_code,latitude,longitude,phone,email
            FROM generated_people WHERE batch_id=%s)
           UNION ALL
-          (SELECT row_number,full_name,gender,age,height_cm,weight_kg,address,city,region,postal_code,latitude,longitude,phone,email
+          (SELECT row_number,full_name,title,middle_name,gender,eye_color,age,height_cm,weight_kg,address,city,region,postal_code,latitude,longitude,phone,email
            FROM generated_people WHERE batch_id=%s
            EXCEPT
-           SELECT row_number,full_name,gender,age,height_cm,weight_kg,address,city,region,postal_code,latitude,longitude,phone,email
+           SELECT row_number,full_name,title,middle_name,gender,eye_color,age,height_cm,weight_kg,address,city,region,postal_code,latitude,longitude,phone,email
            FROM generated_people WHERE batch_id=%s)
         ) d
         """,
