@@ -81,4 +81,6 @@ bounded JSON preview / streamed CSV
 
 ## Deployment
 
-Deploy the container and a managed PostgreSQL database. Apply `schema.sql` once, set `DATABASE_URL`, and expose the app container. Keep the database private; only the FastAPI service should be public.
+The included `render.yaml` defines the web container and a managed PostgreSQL database. Create a Render Blueprint from this repository, review its plan, and deploy. The app applies the idempotent `schema.sql` during startup. For another host, set `DATABASE_URL` and expose the app container. Keep the database private; only the FastAPI service should be public.
+
+On 11 November 2026 the application was checked against the local PostgreSQL database: startup/schema initialization, health, five locales, generation, repeated-seed record comparison, and an 11-line CSV export (header plus ten records) passed. This does not verify a public deployment.
